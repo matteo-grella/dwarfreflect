@@ -2,6 +2,8 @@
 
 Enhanced reflection for Go using DWARF debug information to extract function parameter names, enabling automatic struct generation and semantic function calls.
 
+**Try it on the playground:** https://go.dev/play/p/l-nu7WlIxok
+
 ## Features
 
 - **Extract real parameter names** from compiled functions using DWARF debug info
@@ -28,13 +30,13 @@ import (
     "github.com/matteo-grella/dwarfreflect"
 )
 
-func ProcessUser(name string, age int, active bool) string {
+func ExampleFunction(name string, age int, active bool) string {
     return fmt.Sprintf("%s (%d years old, active: %v)", name, age, active)
 }
 
 func main() {
     // Wrap your function
-    fn := dwarfreflect.NewFunction(ProcessUser)
+    fn := dwarfreflect.NewFunction(ExampleFunction)
     
     // Method 1: Call with map using parameter names
     result := fn.CallWithMap(map[string]any{
