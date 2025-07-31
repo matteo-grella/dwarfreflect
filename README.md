@@ -191,6 +191,29 @@ format, execPath, err := dwarfreflect.GetExecutableInfo()
 - Slight performance overhead for initial function analysis
 - Not suitable for obfuscated or stripped binaries
 
+## Benchmarking
+
+Performance of direct vs. reflection-based calls:
+
+| Benchmark                      | Time per op |
+| ------------------------------ | ----------- |
+| Direct Call (no reflection)    | 214.1 ns    |
+| Positional Args (reflection)   | 718.9 ns    |
+| Map-Based Call (reflection)    | 890.2 ns    |
+| Struct-Based Call (reflection) | 1014 ns     |
+
+> Measured on: macOS (darwin/arm64), Apple M1 Max
+
+### Running
+
+`go test -bench=` disables DWARF loading. To preserve it:
+
+```bash
+go test -c -gcflags=all='-N -l' -o bench.test
+./bench.test -test.bench=.
+```
+
+
 ## License
 
 MIT License - see LICENSE file for details

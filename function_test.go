@@ -642,3 +642,63 @@ func TestGetPackagePath(t *testing.T) {
 		t.Errorf("expected package path to contain 'dwarfreflect', got %s", pkgPath)
 	}
 }
+
+// mustNewFunctionB mirrors mustNewFunction but works with testing.B to
+// simplify benchmarks.
+func mustNewFunctionB(b *testing.B, fn any) *Function {
+	b.Helper()
+	f, err := NewFunction(fn)
+	if err != nil {
+		if strings.Contains(err.Error(), "DWARF") {
+			b.Skipf("DWARF not available: %v", err)
+		}
+		b.Fatalf("unexpected error: %v", err)
+	}
+	return f
+}
+
+// Benchmark to measure the overhead of using Function.Call compared to a direct call.
+func BenchmarkFunctionCall(b *testing.B) {
+	fn := mustNewFunctionB(b, testFunc1)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := fn.Call("Alice", 30); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// Benchmark for calling the wrapped function using a parameter map.
+func BenchmarkFunctionCallWithMap(b *testing.B) {
+	fn := mustNewFunctionB(b, testFunc1)
+	args := map[string]any{"name": "Alice", "age": 30}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := fn.CallWithMap(args); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// Benchmark for calling the wrapped function using a generated struct.
+func BenchmarkFunctionCallWithStruct(b *testing.B) {
+	fn := mustNewFunctionB(b, testFunc1)
+	params := fn.NewParamsPtr()
+	rv := reflect.ValueOf(params).Elem()
+	rv.FieldByName("Name").SetString("Alice")
+	rv.FieldByName("Age").SetInt(30)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := fn.CallWithStruct(params); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// Benchmark for the baseline direct call without reflection.
+func BenchmarkDirectCall(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = testFunc1("Alice", 30)
+	}
+}
