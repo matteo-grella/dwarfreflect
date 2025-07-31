@@ -2,7 +2,7 @@
 
 Enhanced reflection for Go using DWARF debug information to extract function parameter names, enabling automatic struct generation and semantic function calls.
 
-**Try it on the playground:** https://go.dev/play/p/l-nu7WlIxok
+**Try it on the Playground:** https://go.dev/play/p/3y68m9Pq2-1
 
 ## Features
 
