@@ -37,20 +37,24 @@ type Function struct {
 }
 
 // NewFunction creates a Function wrapper that extracts parameter names from DWARF debug info.
-// Panics if DWARF info is unavailable or function is invalid.
+// It returns an error if the provided value is not a function or if DWARF information
+// is unavailable.
 //
 // Example:
 //
 //	func MyFunc(name string, age int) string { return "" }
 //	fn := dwarfreflect.NewFunction(MyFunc)
-func NewFunction(fn any) *Function {
+func NewFunction(fn any) (*Function, error) {
 	resolverOnce.Do(initResolver)
+	if resolverInitErr != nil {
+		return nil, resolverInitErr
+	}
 
 	fnValue := reflect.ValueOf(fn)
 	fnType := fnValue.Type()
 
 	if fnType.Kind() != reflect.Func {
-		panic("NewFunction requires a function")
+		return nil, fmt.Errorf("NewFunction requires a function")
 	}
 
 	// Get function runtime information
@@ -64,7 +68,10 @@ func NewFunction(fn any) *Function {
 		paramTypes[i] = fnType.In(i)
 	}
 
-	paramNames := globalResolver.discoverParameterNames(funcName, len(paramTypes))
+	paramNames, err := globalResolver.discoverParameterNames(funcName, len(paramTypes))
+	if err != nil {
+		return nil, err
+	}
 
 	structType := createStructType(paramNames, paramTypes)
 
@@ -76,7 +83,7 @@ func NewFunction(fn any) *Function {
 		structType:   structType,
 		funcName:     funcName,
 		packagePath:  packagePath,
-	}
+	}, nil
 }
 
 // NewParams creates a struct instance matching all function parameters.
@@ -214,10 +221,10 @@ func (t *Function) createStructTypeFromParams(paramNames []string, paramTypes []
 // Example:
 //
 //	results := fn.Call("Alice", 30, true)
-func (t *Function) Call(args ...any) []reflect.Value {
+func (t *Function) Call(args ...any) ([]reflect.Value, error) {
 	if len(args) != len(t.paramTypes) {
-		panic(fmt.Sprintf("wrong number of arguments: expected %d, got %d",
-			len(t.paramTypes), len(args)))
+		return nil, fmt.Errorf("wrong number of arguments: expected %d, got %d",
+			len(t.paramTypes), len(args))
 	}
 
 	// Prepare function arguments and populate struct
@@ -227,33 +234,33 @@ func (t *Function) Call(args ...any) []reflect.Value {
 
 		// Validate type compatibility
 		if !argValue.Type().AssignableTo(t.paramTypes[i]) {
-			panic(fmt.Sprintf("argument %d (%s): cannot assign %v to %v",
-				i, t.paramNames[i], argValue.Type(), t.paramTypes[i]))
+			return nil, fmt.Errorf("argument %d (%s): cannot assign %v to %v",
+				i, t.paramNames[i], argValue.Type(), t.paramTypes[i])
 		}
 
 		callArgs[i] = argValue
 	}
 
-	return t.function.Call(callArgs)
+	return t.function.Call(callArgs), nil
 }
 
 // CallWithReflect invokes the function with reflect.Value arguments.
 // Lower-level version of Call for advanced use cases.
-func (t *Function) CallWithReflect(args []reflect.Value) []reflect.Value {
+func (t *Function) CallWithReflect(args []reflect.Value) ([]reflect.Value, error) {
 	if len(args) != len(t.paramTypes) {
-		panic(fmt.Sprintf("wrong number of arguments: expected %d, got %d",
-			len(t.paramTypes), len(args)))
+		return nil, fmt.Errorf("wrong number of arguments: expected %d, got %d",
+			len(t.paramTypes), len(args))
 	}
 
 	// Validate types
 	for i, arg := range args {
 		if !arg.Type().AssignableTo(t.paramTypes[i]) {
-			panic(fmt.Sprintf("argument %d (%s): cannot assign %v to %v",
-				i, t.paramNames[i], arg.Type(), t.paramTypes[i]))
+			return nil, fmt.Errorf("argument %d (%s): cannot assign %v to %v",
+				i, t.paramNames[i], arg.Type(), t.paramTypes[i])
 		}
 	}
 
-	return t.function.Call(args)
+	return t.function.Call(args), nil
 }
 
 // CallWithStruct invokes the function using values from a generated struct.
@@ -264,7 +271,7 @@ func (t *Function) CallWithReflect(args []reflect.Value) []reflect.Value {
 //	params := fn.NewParamsPtr().(*struct{Name string; Age int})
 //	params.Name, params.Age = "Alice", 30
 //	results := fn.CallWithStruct(params)
-func (t *Function) CallWithStruct(argStruct any) []reflect.Value {
+func (t *Function) CallWithStruct(argStruct any) ([]reflect.Value, error) {
 	structValue := reflect.ValueOf(argStruct)
 
 	if structValue.Kind() == reflect.Ptr {
@@ -272,8 +279,8 @@ func (t *Function) CallWithStruct(argStruct any) []reflect.Value {
 	}
 
 	if structValue.Type() != t.structType {
-		panic(fmt.Sprintf("struct type mismatch: expected %v, got %v",
-			t.structType, structValue.Type()))
+		return nil, fmt.Errorf("struct type mismatch: expected %v, got %v",
+			t.structType, structValue.Type())
 	}
 
 	// Extract values from struct fields
@@ -285,7 +292,7 @@ func (t *Function) CallWithStruct(argStruct any) []reflect.Value {
 	}
 
 	// Call the function
-	return t.function.Call(args)
+	return t.function.Call(args), nil
 }
 
 // CallWithContext invokes the function with automatic context injection.
@@ -295,7 +302,7 @@ func (t *Function) CallWithStruct(argStruct any) []reflect.Value {
 //
 //	func Handler(ctx context.Context, userID int, action string) {}
 //	results := fn.CallWithContext(ctx, 123, "update") // Only provide userID and action
-func (t *Function) CallWithContext(ctx context.Context, args ...any) []reflect.Value {
+func (t *Function) CallWithContext(ctx context.Context, args ...any) ([]reflect.Value, error) {
 	contextPositions := t.GetContextPositions()
 	if len(contextPositions) == 0 {
 		// No context parameters - just call normally
@@ -311,8 +318,8 @@ func (t *Function) CallWithContext(ctx context.Context, args ...any) []reflect.V
 			fullArgs[i] = ctx
 		} else {
 			if argIndex >= len(args) {
-				panic(fmt.Sprintf("not enough arguments: expected %d non-context args, got %d",
-					len(t.paramTypes)-len(contextPositions), len(args)))
+				return nil, fmt.Errorf("not enough arguments: expected %d non-context args, got %d",
+					len(t.paramTypes)-len(contextPositions), len(args))
 			}
 			fullArgs[i] = args[argIndex]
 			argIndex++
@@ -329,7 +336,7 @@ func (t *Function) CallWithContext(ctx context.Context, args ...any) []reflect.V
 //
 //	params := fn.NewNonContextParams() // struct without Context field
 //	results := fn.CallWithNonContextStructAndContext(ctx, params)
-func (t *Function) CallWithNonContextStructAndContext(ctx context.Context, argStruct any) []reflect.Value {
+func (t *Function) CallWithNonContextStructAndContext(ctx context.Context, argStruct any) ([]reflect.Value, error) {
 	structValue := reflect.ValueOf(argStruct)
 	if structValue.Kind() == reflect.Ptr {
 		structValue = structValue.Elem()
@@ -337,8 +344,8 @@ func (t *Function) CallWithNonContextStructAndContext(ctx context.Context, argSt
 
 	nonContextStructType := t.GetNonContextStructType()
 	if !structTypesCompatible(structValue.Type(), nonContextStructType) {
-		panic(fmt.Sprintf("struct type mismatch: expected %v, got %v",
-			nonContextStructType, structValue.Type()))
+		return nil, fmt.Errorf("struct type mismatch: expected %v, got %v",
+			nonContextStructType, structValue.Type())
 	}
 
 	// Extract values from non-context struct fields
@@ -365,10 +372,10 @@ func (t *Function) CallWithNonContextStructAndContext(ctx context.Context, argSt
 //	    "age": 30,
 //	    "active": true,
 //	})
-func (t *Function) CallWithMap(argMap map[string]any) []reflect.Value {
+func (t *Function) CallWithMap(argMap map[string]any) ([]reflect.Value, error) {
 	args, err := t.MapToArgs(argMap)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	callArgs := make([]reflect.Value, len(args))
@@ -376,7 +383,7 @@ func (t *Function) CallWithMap(argMap map[string]any) []reflect.Value {
 		callArgs[i] = reflect.ValueOf(arg)
 	}
 
-	return t.function.Call(callArgs)
+	return t.function.Call(callArgs), nil
 }
 
 // MapToArgs converts a parameter map to a []any slice in correct parameter order.

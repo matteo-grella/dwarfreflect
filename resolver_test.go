@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Matteo Grella <matteogrella@gmail.com>
+// Licensed under the MIT License. See LICENSE file for details.
+
 package dwarfreflect
 
 import (
@@ -185,6 +188,9 @@ func TestDWARFResolver_extractParametersFromDWARF(t *testing.T) {
 
 	// Initialize the resolver
 	initResolver()
+	if resolverInitErr != nil {
+		t.Skipf("DWARF not available: %v", resolverInitErr)
+	}
 
 	// Try to get parameter names for this function
 	fnValue := reflect.ValueOf(testFunc)
@@ -192,17 +198,10 @@ func TestDWARFResolver_extractParametersFromDWARF(t *testing.T) {
 	runtimeFunc := runtime.FuncForPC(pc)
 	funcName := runtimeFunc.Name()
 
-	// This will panic if DWARF is not available (expected in some test environments)
-	defer func() {
-		if r := recover(); r != nil {
-			// Expected if binary doesn't have DWARF info
-			if !strings.Contains(fmt.Sprint(r), "Cannot extract real parameter names") {
-				t.Errorf("Unexpected panic: %v", r)
-			}
-		}
-	}()
-
-	paramNames := globalResolver.discoverParameterNames(funcName, 3)
+	paramNames, err := globalResolver.discoverParameterNames(funcName, 3)
+	if err != nil {
+		t.Skipf("DWARF not available: %v", err)
+	}
 
 	// If we get here, DWARF was available
 	if len(paramNames) != 3 {
@@ -280,13 +279,8 @@ func TestDebugDWARFParameters(t *testing.T) {
 	funcName := runtimeFunc.Name()
 
 	inputParams, allParams, err := DebugDWARFParameters(funcName)
-
-	// If DWARF is not available, we expect an error
 	if err != nil {
-		if !strings.Contains(err.Error(), "not found in DWARF data") {
-			t.Errorf("Unexpected error: %v", err)
-		}
-		return
+		t.Skipf("DWARF not available: %v", err)
 	}
 
 	// If DWARF is available, verify the results
@@ -383,6 +377,9 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Initialize resolver
 	initResolver()
+	if resolverInitErr != nil {
+		t.Skipf("DWARF not available: %v", resolverInitErr)
+	}
 
 	done := make(chan bool, goroutines)
 
@@ -412,6 +409,9 @@ func TestResolverInitialization(t *testing.T) {
 
 	// Ensure resolver is initialized
 	initResolver()
+	if resolverInitErr != nil {
+		t.Skipf("DWARF not available: %v", resolverInitErr)
+	}
 
 	if globalResolver == nil {
 		t.Fatal("globalResolver should be initialized")
@@ -422,17 +422,9 @@ func TestResolverInitialization(t *testing.T) {
 		t.Error("functionMap should be initialized")
 	}
 
-	// Test that multiple calls don't panic
-	// (sync.Once ensures only first call executes)
+	// Test that multiple calls don't panic (sync.Once ensures only first call executes)
 	for i := 0; i < 3; i++ {
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Errorf("initResolver panicked on call %d: %v", i+1, r)
-				}
-			}()
-			initResolver()
-		}()
+		initResolver()
 	}
 }
 

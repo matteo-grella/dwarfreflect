@@ -15,11 +15,14 @@
 //
 // Example:
 //
-//	func ProcessUser(name string, age int) string {
+//	func ExampleFunction(name string, age int) string {
 //	    return fmt.Sprintf("%s is %d", name, age)
 //	}
 //
-//	fn := dwarfreflect.NewFunction(ProcessUser)
+//	fn, err := dwarfreflect.NewFunction(ExampleFunction)
+//	if err != nil {
+//	    panic(err)
+//	}
 //
 //	// Call with parameter names
 //	result := fn.CallWithMap(map[string]any{

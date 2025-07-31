@@ -17,8 +17,9 @@ import (
 
 // Global DWARF resolver for parameter name discovery from binary debug info
 var (
-	globalResolver *DWARFResolver
-	resolverOnce   sync.Once
+	globalResolver  *DWARFResolver
+	resolverOnce    sync.Once
+	resolverInitErr error
 )
 
 // ExecutableFormat represents the type of executable file
@@ -61,8 +62,8 @@ func initResolver() {
 
 	// Try to initialize DWARF data from current executable
 	if err := globalResolver.loadDWARFData(); err != nil {
-		// DWARF not available, so panic.
-		panic(err)
+		resolverInitErr = err
+		return
 	}
 }
 
@@ -212,7 +213,7 @@ func (dr *DWARFResolver) extractParametersFromDWARF(reader *dwarf.Reader) []stri
 }
 
 // discoverParameterNames tries to find parameter names in DWARF debug info
-func (dr *DWARFResolver) discoverParameterNames(funcName string, paramCount int) []string {
+func (dr *DWARFResolver) discoverParameterNames(funcName string, paramCount int) ([]string, error) {
 	dr.mu.RLock()
 	defer dr.mu.RUnlock()
 
@@ -242,11 +243,11 @@ func (dr *DWARFResolver) discoverParameterNames(funcName string, paramCount int)
 
 				// Return the filtered parameters if we got the expected count
 				if len(validParams) == paramCount {
-					return validParams
+					return validParams, nil
 				}
 				// If validation filtered too many, return the first paramCount as-is
 				if len(inputParams) == paramCount {
-					return inputParams
+					return inputParams, nil
 				}
 			}
 		}
@@ -255,11 +256,11 @@ func (dr *DWARFResolver) discoverParameterNames(funcName string, paramCount int)
 	// Get executable format for better error message
 	format, execPath, _ := GetExecutableInfo()
 
-	// Panic with detailed information about why parameter names couldn't be extracted
-	panic(fmt.Sprintf(`reflectutil: Cannot extract real parameter names for function %q
+	// Return detailed error explaining why parameter names couldn't be extracted
+	return nil, fmt.Errorf(`dwarfreflect: Cannot extract real parameter names for function %q
 
 Possible causes:
-• Binary built with -ldflags="-w" (strips DWARF debug info)  
+• Binary built with -ldflags="-w" (strips DWARF debug info)
 • Binary built with -ldflags="-s -w" (strips symbols + debug info)
 • Binary was stripped using external tools (strip command)
 • Test binary without debug info (use -ldflags="" in test configuration)
@@ -272,7 +273,7 @@ Solutions:
 • For tests: use -ldflags=""
 
 Function: %s | Expected parameters: %d`,
-		funcName, execPath, format, len(dr.functionMap), funcName, paramCount))
+		funcName, execPath, format, len(dr.functionMap), funcName, paramCount)
 }
 
 // generateFunctionKeyCandidates creates possible lookup keys from runtime function name
@@ -334,6 +335,10 @@ func extractPackagePath(funcName string) string {
 // GetDWARFStatus returns information about DWARF debug info availability
 func GetDWARFStatus() (available bool, funcCount int, err error) {
 	resolverOnce.Do(initResolver)
+
+	if resolverInitErr != nil {
+		return false, 0, resolverInitErr
+	}
 
 	if globalResolver.dwarfData == nil {
 		return false, 0, fmt.Errorf("DWARF debug information not available")
@@ -447,6 +452,10 @@ func TestDWARFExtraction() (int, error) {
 func DebugDWARFParameters(funcName string) (inputParams []string, allParams []string, err error) {
 	resolverOnce.Do(initResolver)
 
+	if resolverInitErr != nil {
+		return nil, nil, resolverInitErr
+	}
+
 	globalResolver.mu.RLock()
 	defer globalResolver.mu.RUnlock()
 
@@ -484,6 +493,10 @@ func DebugDWARFParameters(funcName string) (inputParams []string, allParams []st
 // GetAllDWARFFunctions returns all functions found in DWARF data for debugging
 func GetAllDWARFFunctions() map[string][]string {
 	resolverOnce.Do(initResolver)
+
+	if resolverInitErr != nil {
+		return map[string][]string{}
+	}
 
 	globalResolver.mu.RLock()
 	defer globalResolver.mu.RUnlock()

@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Matteo Grella <matteogrella@gmail.com>
+// Licensed under the MIT License. See LICENSE file for details.
+
 package dwarfreflect
 
 import (
@@ -7,6 +10,18 @@ import (
 	"strings"
 	"testing"
 )
+
+func mustNewFunction(t *testing.T, fn any) *Function {
+	t.Helper()
+	f, err := NewFunction(fn)
+	if err != nil {
+		if strings.Contains(err.Error(), "DWARF") {
+			t.Skipf("DWARF not available: %v", err)
+		}
+		t.Fatalf("unexpected error: %v", err)
+	}
+	return f
+}
 
 // Test functions with various signatures
 func testFunc1(name string, age int) string {
@@ -49,7 +64,7 @@ func (t *testStruct) Method(prefix string, num int) string {
 }
 
 func TestNewFunction(t *testing.T) {
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 
 	if fn.functionType.NumIn() != 2 {
 		t.Errorf("expected 2 parameters, got %d", fn.functionType.NumIn())
@@ -64,18 +79,14 @@ func TestNewFunction(t *testing.T) {
 	}
 }
 
-func TestNewFunction_Panic(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for non-function input")
-		}
-	}()
-
-	NewFunction("not a function")
+func TestNewFunction_Error(t *testing.T) {
+	if _, err := NewFunction("not a function"); err == nil {
+		t.Error("expected error for non-function input")
+	}
 }
 
 func TestNewParams(t *testing.T) {
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 	params := fn.NewParams()
 
 	rv := reflect.ValueOf(params)
@@ -89,7 +100,7 @@ func TestNewParams(t *testing.T) {
 }
 
 func TestNewParamsPtr(t *testing.T) {
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 	params := fn.NewParamsPtr()
 
 	rv := reflect.ValueOf(params)
@@ -104,7 +115,7 @@ func TestNewParamsPtr(t *testing.T) {
 }
 
 func TestNewParamsWithOptions(t *testing.T) {
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 
 	opts := StructOptions{
 		FieldNamer: func(name string) string {
@@ -132,8 +143,11 @@ func TestNewParamsWithOptions(t *testing.T) {
 }
 
 func TestCall(t *testing.T) {
-	fn := NewFunction(testFunc1)
-	results := fn.Call("Alice", 30)
+	fn := mustNewFunction(t, testFunc1)
+	results, err := fn.Call("Alice", 30)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
@@ -145,34 +159,29 @@ func TestCall(t *testing.T) {
 }
 
 func TestCall_WrongArgCount(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for wrong arg count")
-		}
-	}()
-
-	fn := NewFunction(testFunc1)
-	fn.Call("Alice") // Missing age parameter
+	fn := mustNewFunction(t, testFunc1)
+	if _, err := fn.Call("Alice"); err == nil {
+		t.Error("expected error for wrong arg count")
+	}
 }
 
 func TestCall_WrongArgType(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for wrong arg type")
-		}
-	}()
-
-	fn := NewFunction(testFunc1)
-	fn.Call("Alice", "not an int")
+	fn := mustNewFunction(t, testFunc1)
+	if _, err := fn.Call("Alice", "not an int"); err == nil {
+		t.Error("expected error for wrong arg type")
+	}
 }
 
 func TestCallWithReflect(t *testing.T) {
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 	args := []reflect.Value{
 		reflect.ValueOf("Bob"),
 		reflect.ValueOf(25),
 	}
-	results := fn.CallWithReflect(args)
+	results, err := fn.CallWithReflect(args)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if results[0].String() != "Bob is 25 years old" {
 		t.Errorf("unexpected result: %s", results[0].String())
@@ -180,7 +189,7 @@ func TestCallWithReflect(t *testing.T) {
 }
 
 func TestCallWithStruct(t *testing.T) {
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 	params := fn.NewParamsPtr()
 
 	// Set values using reflection
@@ -188,7 +197,10 @@ func TestCallWithStruct(t *testing.T) {
 	rv.FieldByName("Name").SetString("Charlie")
 	rv.FieldByName("Age").SetInt(35)
 
-	results := fn.CallWithStruct(params)
+	results, err := fn.CallWithStruct(params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if results[0].String() != "Charlie is 35 years old" {
 		t.Errorf("unexpected result: %s", results[0].String())
@@ -196,7 +208,7 @@ func TestCallWithStruct(t *testing.T) {
 }
 
 func TestCallWithStruct_UsingNewParams(t *testing.T) {
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 
 	// When using NewParams, we need to handle the interface{} properly
 	paramsIface := fn.NewParams()
@@ -211,7 +223,10 @@ func TestCallWithStruct_UsingNewParams(t *testing.T) {
 	paramsPtr.Elem().FieldByName("Age").SetInt(35)
 
 	// Pass the modified struct value (not the pointer)
-	results := fn.CallWithStruct(paramsPtr.Elem().Interface())
+	results, err := fn.CallWithStruct(paramsPtr.Elem().Interface())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if results[0].String() != "Charlie is 35 years old" {
 		t.Errorf("unexpected result: %s", results[0].String())
@@ -220,7 +235,7 @@ func TestCallWithStruct_UsingNewParams(t *testing.T) {
 
 func TestCallWithStruct_Pointer(t *testing.T) {
 	// This test demonstrates that CallWithStruct handles both pointer and value types
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 	params := fn.NewParamsPtr()
 
 	rv := reflect.ValueOf(params).Elem()
@@ -228,7 +243,10 @@ func TestCallWithStruct_Pointer(t *testing.T) {
 	rv.FieldByName("Age").SetInt(28)
 
 	// CallWithStruct accepts both pointer and value
-	results := fn.CallWithStruct(params)
+	results, err := fn.CallWithStruct(params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if results[0].String() != "Diana is 28 years old" {
 		t.Errorf("unexpected result: %s", results[0].String())
@@ -236,23 +254,22 @@ func TestCallWithStruct_Pointer(t *testing.T) {
 }
 
 func TestCallWithStruct_TypeMismatch(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for struct type mismatch")
-		}
-	}()
-
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 	wrongStruct := struct{ X int }{X: 42}
-	fn.CallWithStruct(wrongStruct)
+	if _, err := fn.CallWithStruct(wrongStruct); err == nil {
+		t.Error("expected error for struct type mismatch")
+	}
 }
 
 func TestCallWithMap(t *testing.T) {
-	fn := NewFunction(testFunc1)
-	results := fn.CallWithMap(map[string]any{
+	fn := mustNewFunction(t, testFunc1)
+	results, err := fn.CallWithMap(map[string]any{
 		"name": "Eve",
 		"age":  40,
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if results[0].String() != "Eve is 40 years old" {
 		t.Errorf("unexpected result: %s", results[0].String())
@@ -260,35 +277,27 @@ func TestCallWithMap(t *testing.T) {
 }
 
 func TestCallWithMap_MissingParam(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for missing parameter")
-		}
-	}()
-
-	fn := NewFunction(testFunc1)
-	fn.CallWithMap(map[string]any{
+	fn := mustNewFunction(t, testFunc1)
+	if _, err := fn.CallWithMap(map[string]any{
 		"name": "Frank",
 		// missing "age"
-	})
+	}); err == nil {
+		t.Error("expected error for missing parameter")
+	}
 }
 
 func TestCallWithMap_WrongType(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for wrong parameter type")
-		}
-	}()
-
-	fn := NewFunction(testFunc1)
-	fn.CallWithMap(map[string]any{
+	fn := mustNewFunction(t, testFunc1)
+	if _, err := fn.CallWithMap(map[string]any{
 		"name": "Grace",
 		"age":  "not an int",
-	})
+	}); err == nil {
+		t.Error("expected error for wrong parameter type")
+	}
 }
 
 func TestMapToArgs(t *testing.T) {
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 	args, err := fn.MapToArgs(map[string]any{
 		"name": "Henry",
 		"age":  45,
@@ -312,9 +321,12 @@ func TestMapToArgs(t *testing.T) {
 }
 
 func TestCallWithContext(t *testing.T) {
-	fn := NewFunction(testFunc4)
+	fn := mustNewFunction(t, testFunc4)
 	ctx := context.Background()
-	results := fn.CallWithContext(ctx, 123, "test")
+	results, err := fn.CallWithContext(ctx, 123, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if len(results) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(results))
@@ -330,9 +342,12 @@ func TestCallWithContext(t *testing.T) {
 }
 
 func TestCallWithContext_NoContextParams(t *testing.T) {
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 	ctx := context.Background()
-	results := fn.CallWithContext(ctx, "Ivy", 50)
+	results, err := fn.CallWithContext(ctx, "Ivy", 50)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if results[0].String() != "Ivy is 50 years old" {
 		t.Errorf("unexpected result: %s", results[0].String())
@@ -340,7 +355,7 @@ func TestCallWithContext_NoContextParams(t *testing.T) {
 }
 
 func TestCallWithNonContextStructAndContext(t *testing.T) {
-	fn := NewFunction(testFunc4)
+	fn := mustNewFunction(t, testFunc4)
 	params := fn.NewNonContextParamsPtr()
 
 	rv := reflect.ValueOf(params).Elem()
@@ -348,7 +363,10 @@ func TestCallWithNonContextStructAndContext(t *testing.T) {
 	rv.FieldByName("Name").SetString("test2")
 
 	ctx := context.Background()
-	results := fn.CallWithNonContextStructAndContext(ctx, params)
+	results, err := fn.CallWithNonContextStructAndContext(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if results[0].String() != "id=456, name=test2" {
 		t.Errorf("unexpected result: %s", results[0].String())
@@ -368,7 +386,7 @@ func TestGetContextPositions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fn := NewFunction(tt.fn)
+			fn := mustNewFunction(t, tt.fn)
 			positions := fn.GetContextPositions()
 
 			if len(positions) != len(tt.expected) {
@@ -386,7 +404,7 @@ func TestGetContextPositions(t *testing.T) {
 }
 
 func TestGetNonContextParameters(t *testing.T) {
-	fn := NewFunction(testFunc4)
+	fn := mustNewFunction(t, testFunc4)
 	names, types := fn.GetNonContextParameters()
 
 	if len(names) != 2 {
@@ -421,7 +439,7 @@ func TestGetReturnInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fn := NewFunction(tt.fn)
+			fn := mustNewFunction(t, tt.fn)
 			types, hasError := fn.GetReturnInfo()
 
 			if len(types) != tt.returnCount {
@@ -436,7 +454,7 @@ func TestGetReturnInfo(t *testing.T) {
 }
 
 func TestGetBaseFunctionName(t *testing.T) {
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 	baseName := fn.GetBaseFunctionName()
 
 	if baseName != "testFunc1" {
@@ -446,7 +464,7 @@ func TestGetBaseFunctionName(t *testing.T) {
 
 func TestMethodFunction(t *testing.T) {
 	ts := &testStruct{Value: "test"}
-	fn := NewFunction(ts.Method)
+	fn := mustNewFunction(t, ts.Method)
 
 	// Method value has receiver already bound, so only 2 explicit parameters
 	if fn.functionType.NumIn() != 2 {
@@ -454,7 +472,10 @@ func TestMethodFunction(t *testing.T) {
 	}
 
 	// Call the method - receiver is already bound in ts.Method
-	results := fn.Call("prefix", 42)
+	results, err := fn.Call("prefix", 42)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if results[0].String() != "prefix-test-42" {
 		t.Errorf("unexpected method result: %s", results[0].String())
 	}
@@ -462,7 +483,7 @@ func TestMethodFunction(t *testing.T) {
 
 func TestUnboundMethodFunction(t *testing.T) {
 	// Test with unbound method (method expression)
-	fn := NewFunction((*testStruct).Method)
+	fn := mustNewFunction(t, (*testStruct).Method)
 
 	// Unbound method includes receiver as first parameter
 	if fn.functionType.NumIn() != 3 {
@@ -471,7 +492,10 @@ func TestUnboundMethodFunction(t *testing.T) {
 
 	// Call the unbound method - need to pass receiver as first argument
 	ts := &testStruct{Value: "test"}
-	results := fn.Call(ts, "prefix", 42)
+	results, err := fn.Call(ts, "prefix", 42)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if results[0].String() != "prefix-test-42" {
 		t.Errorf("unexpected method result: %s", results[0].String())
 	}
@@ -568,9 +592,12 @@ func TestStructTypesCompatible(t *testing.T) {
 }
 
 func TestComplexTypes(t *testing.T) {
-	fn := NewFunction(testFunc5)
+	fn := mustNewFunction(t, testFunc5)
 
-	results := fn.Call("test", true, []int{1, 2, 3})
+	results, err := fn.Call("test", true, []int{1, 2, 3})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
@@ -591,20 +618,23 @@ func TestComplexTypes(t *testing.T) {
 }
 
 func TestNoParamsFunction(t *testing.T) {
-	fn := NewFunction(testFunc3)
+	fn := mustNewFunction(t, testFunc3)
 
 	if len(fn.paramNames) != 0 {
 		t.Errorf("expected 0 parameters, got %d", len(fn.paramNames))
 	}
 
-	results := fn.Call()
+	results, err := fn.Call()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if results[0].String() != "no params" {
 		t.Errorf("unexpected result: %s", results[0].String())
 	}
 }
 
 func TestGetPackagePath(t *testing.T) {
-	fn := NewFunction(testFunc1)
+	fn := mustNewFunction(t, testFunc1)
 	pkgPath := fn.GetPackagePath()
 
 	// Should contain "dwarfreflect" since that's our package

@@ -36,8 +36,11 @@ func ExampleFunction(name string, age int, active bool) string {
 
 func main() {
     // Wrap your function
-    fn := dwarfreflect.NewFunction(ExampleFunction)
-    
+    fn, err := dwarfreflect.NewFunction(ExampleFunction)
+    if err != nil {
+        panic(err)
+    }
+        
     // Method 1: Call with map using parameter names
     result := fn.CallWithMap(map[string]any{
         "name":   "Alice",
@@ -64,16 +67,21 @@ This is the default for Go builds, but debug info is stripped when using:
 - `-ldflags="-s -w"` (strips symbols + DWARF)
 - External stripping tools
 
-The package will panic with a detailed error if DWARF info is unavailable.
+The package returns an error if DWARF info is unavailable.
 
 ## Core API
 
 ### Creating a Function Wrapper
+
 ```go
-fn := dwarfreflect.NewFunction(yourFunc)
+fn, err := dwarfreflect.NewFunction(yourFunc)
+if err != nil {
+    // handle error
+}
 ```
 
 ### Calling Functions
+
 ```go
 // Traditional positional arguments
 results := fn.Call(arg1, arg2, arg3)
@@ -91,6 +99,7 @@ results := fn.CallWithStruct(params)
 ```
 
 ### Struct Generation
+
 ```go
 // Get struct type matching function parameters
 structType := fn.GetStructType()
@@ -111,12 +120,16 @@ params := fn.NewParams(dwarfreflect.StructOptions{
 ```
 
 ### Context Handling
+
 ```go
 func MyHandler(ctx context.Context, userID int, action string) error {
     // ...
 }
 
-fn := dwarfreflect.NewFunction(MyHandler)
+fn, err := dwarfreflect.NewFunction(MyHandler)
+if err != nil {
+    panic(err)
+}
 
 // Automatically inject context
 results := fn.CallWithContext(ctx, 123, "update")
@@ -129,6 +142,7 @@ nonCtxParams := fn.NewNonContextParams()
 ## Advanced Features
 
 ### Parameter Inspection
+
 ```go
 names, types := fn.GetParameterInfo()
 // names: ["name", "age", "active"]
@@ -138,24 +152,33 @@ positions := fn.GetContextPositions() // [0] if first param is context
 ```
 
 ### Return Type Analysis
+
 ```go
 returnTypes, hasError := fn.GetReturnInfo()
 // Detects if last return value implements error interface
 ```
 
 ### Method Support
+
 ```go
 // Method values (receiver bound)
 obj := &MyType{}
-fn := dwarfreflect.NewFunction(obj.Method)
+fn, err := dwarfreflect.NewFunction(obj.Method)
+if err != nil {
+    panic(err)
+}
 
 // Method expressions (receiver unbound)
-fn := dwarfreflect.NewFunction((*MyType).Method)
+fn, err := dwarfreflect.NewFunction((*MyType).Method)
+if err != nil {
+    panic(err)
+}
 ```
 
 ## Debugging
 
 Check DWARF availability:
+
 ```go
 available, funcCount, err := dwarfreflect.GetDWARFStatus()
 format, execPath, err := dwarfreflect.GetExecutableInfo()
